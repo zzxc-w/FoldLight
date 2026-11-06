@@ -51,6 +51,40 @@ try{
     await openPanel(page,'#scene-panel');await page.locator('#theme-select').selectOption('dark');await page.emulateMedia({colorScheme:'light'});assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
     await page.locator('#theme-select').selectOption('system');await resolvedTheme('light');await page.emulateMedia({colorScheme:'dark'});await resolvedTheme('dark');
   });
+  await check('safe-area layout keeps the header and settings inside the usable viewport',async()=>{
+    const viewport=page.viewportSize(),style=await page.addStyleTag({content:':root{--safe-top:24px;--safe-left:12px;--safe-right:12px}'});
+    try{
+      for(const size of [{width:1180,height:820},{width:820,height:1180},{width:390,height:844},{width:900,height:600}]){
+        await page.setViewportSize(size);await page.waitForTimeout(100);
+        const boxes=await page.evaluate(()=>{
+          const rect=selector=>{const r=document.querySelector(selector).getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom};};
+          return {header:rect('.app-header'),workspace:rect('.workspace'),toolbar:rect('.toolbar'),inspector:rect('.inspector'),export:rect('#export'),scrollWidth:document.documentElement.scrollWidth};
+        });
+        assert.equal(boxes.header.y,24,'Header clears the top safe area');assert.equal(boxes.header.x,12);assert.equal(boxes.header.right,size.width-12);
+        assert.equal(boxes.workspace.y,boxes.header.bottom);assert.ok(Math.abs(boxes.workspace.bottom-size.height)<1,'Workspace fills only the remaining height');
+        assert.ok(boxes.export.y>=boxes.header.y&&boxes.export.bottom<=boxes.header.bottom);assert.ok(boxes.export.right<=boxes.header.right,'Export stays inside the safe width');
+        const settingsTop=size.width<=1000?boxes.toolbar.bottom:boxes.workspace.y;
+        assert.ok(boxes.inspector.bottom<=size.height+1&&boxes.inspector.y>=settingsTop-1,`Settings remain aligned at ${size.width}×${size.height}`);assert.ok(boxes.scrollWidth<=size.width,'No horizontal page overflow');
+        if(size.width===1180||size.width===820)await page.screenshot({path:new URL(`safe-area-${size.width}.png`,out).pathname.replace(/^\/([A-Z]:)/,'$1')});
+      }
+    }finally{await style.evaluate(element=>element.remove());await page.setViewportSize(viewport);await page.waitForTimeout(100);}
+  });
+  await check('installed app uses an opaque centered Apple icon and a separate mask-safe icon',async()=>{
+    assert.equal(await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content'),'default');
+    const apple=page.locator('link[rel="apple-touch-icon"]');assert.equal(await apple.getAttribute('sizes'),'180x180');
+    const manifestResponse=await context.request.get(new URL(await page.locator('link[rel="manifest"]').getAttribute('href'),url).href),manifest=await manifestResponse.json();
+    const assets=[{src:await apple.getAttribute('href'),size:180,apple:true},...manifest.icons.filter(icon=>icon.type==='image/png').map(icon=>({...icon,size:Number(icon.sizes.split('x')[0])}))];
+    assert.ok(assets.some(icon=>icon.purpose==='maskable'));assert.ok(assets.some(icon=>icon.purpose==='any'&&icon.size===512));
+    for(const asset of assets){
+      const response=await context.request.get(new URL(asset.src,url).href);assert.ok(response.ok());const png=pngPixels(await response.body());assert.equal(png.width,asset.size);assert.equal(png.height,asset.size);
+      let left=png.width,top=png.height,right=-1,bottom=-1;
+      for(let y=0;y<png.height;y++)for(let x=0;x<png.width;x++){
+        const offset=(y*png.width+x)*png.channels;if(png.channels===4)assert.equal(png.pixels[offset+3],255,'OS receives an opaque square');
+        if(png.pixels[offset]>80){left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);if(asset.purpose==='maskable')assert.ok(Math.hypot((x+.5)/png.width-.5,(y+.5)/png.height-.5)<=.405,'Mark stays inside the mask safe circle');}
+      }
+      assert.ok(right>left&&bottom>top,'Icon has a visible mark');assert.ok(Math.abs((left+right+1)/2-png.width/2)<=png.width*.012,'Mark is horizontally centered');assert.ok(Math.abs((top+bottom+1)/2-png.height/2)<=png.height*.012,'Mark is vertically centered');
+    }
+  });
   await page.screenshot({path:new URL('desktop.png',out).pathname.replace(/^\/([A-Z]:)/,'$1')});
   await check('all fold presets produce distinct visible renderings',async()=>{
     const shots=new Set();
