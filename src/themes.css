@@ -1,4 +1,5 @@
 /* v1.1: shared additions, then the warm paper palette for light mode. */
+button,summary,select{touch-action:manipulation}
 .import-button{min-height:44px;flex-shrink:0;border:1px solid var(--line);padding:0 10px;color:var(--muted);font-size:11px}
 #model-files{display:block;width:100%;margin-top:12px;border:1px solid var(--line);padding:12px;border-radius:6px;background:var(--panel);font-size:12px}
 #model-files::file-selector-button{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:4px;background:var(--panel);color:inherit;margin-right:10px;cursor:pointer}
@@ -12,6 +13,14 @@
 #file-drop-overlay strong{font-size:25px;font-weight:450}
 #file-drop-overlay span{font-size:13px}
 .orientation-note{margin:15px 0 0}
+.transform-number{display:block;width:100%;min-height:38px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:inherit;padding:6px 10px;font-variant-numeric:tabular-nums;font-size:12px}
+.orientation-presets{display:grid;grid-template-columns:repeat(2,1fr);gap:5px;margin-top:15px}.orientation-presets button{border:1px solid var(--line);font-size:11px;color:var(--muted);min-height:40px}
+.model-transform-tools{position:absolute;bottom:56px;left:50%;transform:translateX(-50%);width:min(580px,calc(100% - 50px));z-index:3;background:#242a2be8;border:1px solid #4a535361;border-radius:8px;padding:13px 16px;backdrop-filter:blur(12px)}
+.transform-heading{display:flex;justify-content:space-between;gap:12px;margin-bottom:8px;font-size:9px;color:#99a695}.transform-heading>span:first-child{font-size:8px;letter-spacing:1.4px;white-space:nowrap}
+.transform-modes{display:flex;gap:5px}.transform-modes button{flex:1;font-size:11px;min-height:44px;border:1px solid #465043;color:#a7b49f}.transform-modes button.selected{background:#625a3d;border-color:#a48f60;color:#f3dfb2}.transform-modes #transform-numbers{flex:0 0 44px}
+[data-theme=light] .model-transform-tools{background:#f8f8efed;border-color:#c4ccb9}
+[data-theme=light] .transform-heading{color:#647854}[data-theme=light] .transform-modes button{border-color:#cfd7c2;color:#5c704a}[data-theme=light] .transform-modes button.selected{background:#e6dabb;border-color:#b89b5d;color:#795b26}
+#light-gizmo.dragging{transform:translate(-50%,-50%) scale(1.12);box-shadow:0 0 0 14px #d9bd7920;cursor:grabbing}
 #model-panel .subtle-button{font-size:11px}
 #study-title{overflow-wrap:anywhere;max-width:260px}
 [data-theme=light] #file-drop-overlay{background:#f7f7eeed;color:#51623f}
@@ -124,7 +133,8 @@
 @media(max-width:1200px){.navigation-tools{right:18px;top:74px}.study-heading{max-width:175px}}
 @media(max-width:1000px){.navigation-tools button{min-height:44px}.navigation-tools{top:82px}.pan-pad button{min-width:44px;min-height:44px}}
 @media(max-width:700px){
- .toolbar .model-picker{width:calc(100% - 94px)}.toolbar .import-button{order:2;width:44px;padding:0;margin-left:5px}.import-button span{display:none}.toolbar>.icon-button{order:3}.toolbar .shading-tabs{order:4}
+ .toolbar .model-picker{width:calc(100% - 143px)}.toolbar .import-button{order:2;width:44px;padding:0;margin-left:5px}.import-button span{display:none}.toolbar>.icon-button{order:3}.toolbar .shading-tabs{order:4}
+ .model-transform-tools{width:calc(100% - 24px);bottom:46px;padding:11px 10px}.transform-heading{font-size:8px;gap:6px}.transform-heading>span:first-child{font-size:7px;letter-spacing:1px}.transform-modes button{font-size:10px;padding:0 5px}.transform-number{min-height:44px}.orientation-presets button{min-height:44px}
  .app-header{gap:6px}.brand{font-size:19px;gap:4px}.brand-mark{width:25px}.brand small{font-size:6px;letter-spacing:1px}.header-actions{gap:4px}.header-actions .primary{padding:0 9px;font-size:9px}.header-actions .text-button{width:34px}.theme-picker select{width:42px;padding:0;color:transparent;position:relative;z-index:2}.theme-picker option{color:var(--muted)}.theme-picker>svg{left:12px;z-index:0}
  .toolbar{height:108px;flex-wrap:wrap;gap:0;padding:5px 12px}.model-picker{order:1;width:calc(100% - 44px)}.model-picker select{max-width:none;width:100%}.toolbar>.icon-button{order:2;margin-left:auto;width:44px}.shading-tabs{order:3;width:100%;margin:0}.shading-tabs button{flex:1;min-height:44px;font-size:11px}
  .camera-tools{top:12px;left:12px}.navigation-tools{top:64px;right:12px;width:calc(100% - 24px);flex-wrap:nowrap;justify-content:space-between;gap:5px}.navigation-tools button{min-height:40px}.navigation-tools .move-controls{display:none}.navigation-tools .navigation-modes{flex-shrink:0}.navigation-zoom{margin-left:auto}.navigation-modes button{padding:0 12px;font-size:10px}

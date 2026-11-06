@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createModel } from './geometry';
 import type { Settings } from './state';
 import type { ImportedModel } from './import-model';
+import { dragLightDirection, lightAngles, lightDirection, screenTranslation, dragModelRotation, dragUniformScale, wrapDegrees, type ModelTool } from './interaction';
 
 export class Studio {
   scene = new THREE.Scene();
@@ -28,7 +29,13 @@ export class Studio {
   private surfaceMeshes: THREE.Mesh[] = [];
   private imported: ImportedModel | null = null;
   private baseCenter = new THREE.Vector3();
+  private modelTool:ModelTool='view';
+  private modelDrag:{id:number;x:number;y:number;rotation:THREE.Quaternion;camera:THREE.Quaternion;position:THREE.Vector3;scale:number;height:number}|null=null;
+  private lightDrag:{direction:THREE.Vector3;camera:THREE.Quaternion;radius:number;controlsEnabled:boolean}|null=null;
   private rotationKey = '';
+  private shapeKey='';
+  private baseFloorY=0;
+  private lightGizmoRadius=2.7;
   private dirty = true;
   private frame = 0;
   private observer: ResizeObserver;
@@ -46,6 +53,7 @@ export class Studio {
   onFrame?: () => void;
   onNavigate?: () => void;
   onContextStatus?: (lost: boolean) => void;
+  onTransform?:()=>void;
   constructor(public host: HTMLElement, public settings: Settings) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -56,12 +64,17 @@ export class Studio {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.domElement.setAttribute('aria-label', 'Interactive 3D reference. Drag to orbit, pinch or scroll to zoom, two fingers or right drag to pan.');
     this.renderer.domElement.tabIndex = 0;
+    this.renderer.domElement.addEventListener('pointerdown',this.modelPointerDown,true);
+    this.renderer.domElement.addEventListener('pointermove',this.modelPointerMove,true);
+    this.renderer.domElement.addEventListener('pointerup',this.modelPointerUp,true);
+    this.renderer.domElement.addEventListener('pointercancel',this.modelPointerUp,true);
+    this.renderer.domElement.addEventListener('lostpointercapture',this.modelPointerUp,true);
     this.renderer.domElement.addEventListener('keydown', this.keyboard);
     this.renderer.domElement.addEventListener('dblclick', this.focusPoint);
     this.renderer.domElement.addEventListener('webglcontextlost', this.contextLoss);
     this.renderer.domElement.addEventListener('webglcontextrestored', this.contextRestore);
     host.prepend(this.renderer.domElement);
-    this.camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
+    this.camera = new THREE.PerspectiveCamera(36, 1, 0.05, 500);
     this.camera.position.set(4.1, 2.0, 7.6);
     this.controls = this.makeControls();
     this.scene.add(this.model, this.key, this.key.target, this.fill, this.rim, this.indicator);
@@ -137,8 +150,8 @@ export class Studio {
     // Direct manipulation avoids the drifting target that made small pans difficult.
     c.enableDamping = false; c.rotateSpeed = 0.65; c.panSpeed = 0.8; c.zoomSpeed = 0.75;
     c.screenSpacePanning = true; c.zoomToCursor = false;
-    c.minDistance = 2; c.maxDistance = 35;
-    c.minZoom = 0.15; c.maxZoom = 6; c.target.set(0, -0.1, 0); c.maxPolarAngle = Math.PI * 0.97;
+    c.minDistance = 0.3; c.maxDistance = 160;
+    c.minZoom = 0.02; c.maxZoom = 30; c.target.set(0, -0.1, 0); c.maxPolarAngle = Math.PI * 0.97;
     c.mouseButtons.LEFT = this.navigation === 'pan' ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
     c.mouseButtons.RIGHT = THREE.MOUSE.PAN;
     c.touches.ONE = this.navigation === 'pan' ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
@@ -150,9 +163,59 @@ export class Studio {
     this.navigation = mode;
     this.controls.mouseButtons.LEFT = mode === 'pan' ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
     this.controls.touches.ONE = mode === 'pan' ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
-    this.renderer.domElement.style.cursor = mode === 'pan' ? 'grab' : 'default';
+    this.renderer.domElement.style.cursor = this.modelTool==='view'?(mode==='pan'?'grab':'default'):this.modelTool==='scale'?'nwse-resize':'move';
     this.renderer.domElement.setAttribute('aria-label', `Interactive 3D reference. Drag to ${mode}, pinch or scroll to zoom. Arrow keys pan; plus and minus zoom.`);
   }
+  setModelTool(tool:ModelTool) {
+    this.finishModelDrag();this.modelTool=tool;this.setNavigation(this.navigation);
+    this.renderer.domElement.setAttribute('aria-label',tool==='view'?'3D viewport. Drag to orbit or pan the camera.':`3D viewport. Drag to ${tool==='translate'?'move':tool} the model. Select View for camera gestures.`);
+  }
+  getModelTool(){return this.modelTool;}
+  private visibleHeight() {
+    const depth=this.model.getWorldPosition(new THREE.Vector3()).sub(this.camera.getWorldPosition(new THREE.Vector3())).dot(this.camera.getWorldDirection(new THREE.Vector3()));
+    return this.camera instanceof THREE.PerspectiveCamera?2*Math.max(.1,depth)*Math.tan(THREE.MathUtils.degToRad(this.camera.fov/2)):(this.camera.top-this.camera.bottom)/this.camera.zoom;
+  }
+  private modelPointerDown=(event:PointerEvent)=>{
+    if(this.modelTool==='view'||event.button!==0||this.exporting||this.contextLost)return;
+    event.preventDefault();event.stopImmediatePropagation();
+    if(this.modelDrag)return;
+    this.modelDrag={id:event.pointerId,x:event.clientX,y:event.clientY,rotation:this.model.quaternion.clone(),camera:this.camera.getWorldQuaternion(new THREE.Quaternion()),position:new THREE.Vector3(this.settings.modelPositionX,this.settings.modelPositionY,this.settings.modelPositionZ),scale:this.settings.modelScale,height:this.visibleHeight()};
+    this.controls.enabled=false;this.renderer.domElement.setPointerCapture(event.pointerId);
+    this.renderer.domElement.style.cursor='grabbing';
+  };
+  private modelPointerMove=(event:PointerEvent)=>{
+    const drag=this.modelDrag;if(!drag)return;
+    event.preventDefault();event.stopImmediatePropagation();if(drag.id!==event.pointerId)return;
+    const dx=event.clientX-drag.x,dy=event.clientY-drag.y,s=this.settings;
+    if(this.modelTool==='translate'){
+      const p=drag.position.clone().add(screenTranslation(drag.camera,dx,dy,drag.height,this.host.clientHeight));
+      s.modelPositionX=THREE.MathUtils.clamp(p.x,-10,10);s.modelPositionY=THREE.MathUtils.clamp(p.y,-10,10);s.modelPositionZ=THREE.MathUtils.clamp(p.z,-10,10);
+    }else if(this.modelTool==='rotate'){
+      const euler=new THREE.Euler().setFromQuaternion(dragModelRotation(drag.rotation,drag.camera,dx,dy,this.host.clientHeight),'XYZ');
+      s.modelRotationX=wrapDegrees(THREE.MathUtils.radToDeg(euler.x));s.modelRotationY=wrapDegrees(THREE.MathUtils.radToDeg(euler.y));s.modelRotationZ=wrapDegrees(THREE.MathUtils.radToDeg(euler.z));
+    }else if(this.modelTool==='scale')s.modelScale=dragUniformScale(drag.scale,dx,dy);
+    this.apply();this.onTransform?.();
+  };
+  private modelPointerUp=(event:PointerEvent)=>{
+    if(!this.modelDrag||event.pointerId!==this.modelDrag.id)return;
+    event.preventDefault();event.stopImmediatePropagation();this.finishModelDrag();
+  };
+  private finishModelDrag(){
+    const drag=this.modelDrag;this.modelDrag=null;
+    if(drag&&this.renderer.domElement.hasPointerCapture(drag.id))this.renderer.domElement.releasePointerCapture(drag.id);
+    if(this.controls&&!this.exporting&&!this.lightDrag)this.controls.enabled=true;
+    if(this.controls)this.renderer.domElement.style.cursor=this.modelTool==='view'?(this.navigation==='pan'?'grab':'default'):this.modelTool==='scale'?'nwse-resize':'move';
+  }
+  beginLightDrag(){
+    if(this.exporting||this.contextLost||this.lightDrag)return false;
+    this.finishModelDrag();this.lightDrag={direction:lightDirection(this.settings.azimuth,this.settings.elevation),camera:this.camera.getWorldQuaternion(new THREE.Quaternion()),radius:THREE.MathUtils.clamp(Math.min(this.host.clientWidth,this.host.clientHeight)*.35,100,240),controlsEnabled:this.controls.enabled};this.controls.enabled=false;
+    return true;
+  }
+  moveLightDrag(dx:number,dy:number){
+    const drag=this.lightDrag;if(!drag)return;
+    Object.assign(this.settings,lightAngles(dragLightDirection(drag.direction,drag.camera,dx,dy,drag.radius)));this.apply();
+  }
+  endLightDrag(){const drag=this.lightDrag;this.lightDrag=null;if(drag&&!this.exporting)this.controls.enabled=drag.controlsEnabled;this.invalidate();}
   zoomBy(factor: number) {
     if (!Number.isFinite(factor) || factor <= 0) return;
     this.onNavigate?.();
@@ -191,7 +254,7 @@ export class Studio {
     event.preventDefault();
   };
   private focusPoint = (event: MouseEvent) => {
-    if (event.button !== 0 || this.contextLost || this.exporting) return;
+    if (event.button !== 0 || this.contextLost || this.exporting||this.modelTool!=='view') return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     const pointer = new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
     const ray = new THREE.Raycaster(); ray.setFromCamera(pointer, this.camera);
@@ -201,7 +264,7 @@ export class Studio {
     this.controls.target.copy(hit.point); this.camera.position.copy(hit.point).add(offset);
     this.controls.update(); this.onNavigate?.(); this.invalidate();
   };
-  private contextLoss = (event: Event) => { event.preventDefault(); this.contextLost = true; this.onContextStatus?.(true); };
+  private contextLoss = (event: Event) => { event.preventDefault(); this.finishModelDrag();this.endLightDrag();this.contextLost = true; this.onContextStatus?.(true); };
   private contextRestore = () => { this.contextLost = false; this.apply(); this.onContextStatus?.(false); };
   invalidate() { this.dirty = true; }
   private visibility = () => { if (!document.hidden && !this.frame) { this.invalidate(); this.loop(); } };
@@ -234,6 +297,7 @@ export class Studio {
     this.camera.updateProjectionMatrix(); this.invalidate();
   }
   private releaseCurrentModel() {
+    this.finishModelDrag();
     const geometries = new Set<THREE.BufferGeometry>();
     this.model.traverse(o => { if (o instanceof THREE.Mesh) geometries.add(o.geometry); });
     this.model.clear();
@@ -285,32 +349,47 @@ export class Studio {
       this.surfaceMeshes.push(mesh); this.outlineMeshes.push(outline); this.wireMeshes.push(wire);
     }
     this.rotationKey = '';
+    this.shapeKey='';
     this.apply();
   }
   private applyModelRotation() {
-    const s = this.settings, key = `${s.modelRotationX},${s.modelRotationY},${s.modelRotationZ}`;
+    const s = this.settings, key = `${s.modelRotationX},${s.modelRotationY},${s.modelRotationZ},${s.modelPositionX},${s.modelPositionY},${s.modelPositionZ},${s.modelScale}`;
     if (key === this.rotationKey) return;
     this.rotationKey = key;
     this.model.rotation.set(THREE.MathUtils.degToRad(s.modelRotationX), THREE.MathUtils.degToRad(s.modelRotationY), THREE.MathUtils.degToRad(s.modelRotationZ));
+    this.model.scale.setScalar(s.modelScale);
     this.model.position.copy(this.baseCenter);
     // An exact minimum avoids hovering spheres or diagonal imports. Compute it
     // only when rotation/model changes, not while lighting sliders are dragged.
+    const shapeKey=`${s.modelRotationX},${s.modelRotationY},${s.modelRotationZ},${s.modelScale}`;
+    if(shapeKey!==this.shapeKey){
+    this.shapeKey=shapeKey;
     const matrix = new THREE.Matrix4().makeRotationFromEuler(this.model.rotation).elements;
     let minimum = Infinity;
     for (const mesh of this.surfaceMeshes) {
       const p = mesh.geometry.getAttribute('position');
       for (let i = 0; i < p.count; i++) {
-        const y = matrix[1] * (p.getX(i) - this.baseCenter.x) + matrix[5] * (p.getY(i) - this.baseCenter.y) + matrix[9] * (p.getZ(i) - this.baseCenter.z) + this.baseCenter.y;
+        const y = (matrix[1] * (p.getX(i) - this.baseCenter.x) + matrix[5] * (p.getY(i) - this.baseCenter.y) + matrix[9] * (p.getZ(i) - this.baseCenter.z))*s.modelScale + this.baseCenter.y;
         minimum = Math.min(minimum, y);
       }
     }
-    if (Number.isFinite(minimum)) this.model.position.y += -1.6 - minimum;
+    this.baseFloorY=this.baseCenter.y+(Number.isFinite(minimum)?-1.6-minimum:0);
+    }
+    this.model.position.y=this.baseFloorY;
+    this.model.position.add(new THREE.Vector3(s.modelPositionX,s.modelPositionY,s.modelPositionZ));
     this.model.updateMatrixWorld(true);
+    // Keep the directional shadow camera centered on transformed references.
+    const size=new THREE.Box3().setFromObject(this.model).getSize(new THREE.Vector3());
+    this.lightGizmoRadius=Math.max(.6,Math.max(size.x,size.y,size.z)*.8);
+    const radius=Math.max(size.x,size.y,size.z)*.9+1,camera=this.key.shadow.camera;camera.left=-radius;camera.right=radius;camera.top=radius;camera.bottom=-radius;camera.far=Math.max(25,radius*6);camera.updateProjectionMatrix();
   }
   apply() {
     const s = this.settings, az = THREE.MathUtils.degToRad(s.azimuth), el = THREE.MathUtils.degToRad(s.elevation);
     const direction = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
-    this.key.position.copy(direction).multiplyScalar(7);
+    this.applyModelRotation();
+    const target=this.model.position.clone();
+    const shadowRadius=Math.max(4,this.key.shadow.camera.right);
+    this.key.target.position.copy(target);this.key.position.copy(direction).multiplyScalar(Math.max(7,shadowRadius*2.5)).add(target);
     this.key.intensity = s.intensity; this.key.color.set(s.lightColor); this.key.castShadow = s.shadows;
     this.key.shadow.radius = s.softness;
     this.fill.intensity = s.fill; this.rim.visible = s.secondary;
@@ -328,7 +407,6 @@ export class Studio {
     const side = s.model === 'imported' ? THREE.DoubleSide : THREE.FrontSide;
     for (const material of [this.material, this.normalMaterial]) if (material.side !== side) { material.side = side; material.needsUpdate = true; }
     this.surfaceMeshes.forEach(mesh => { mesh.material = s.silhouette ? this.silhouetteMaterial : s.facing ? this.facingMaterial : s.mode === 'normal' ? this.normalMaterial : this.material; });
-    this.applyModelRotation();
     this.outlineMeshes.forEach(m => m.visible = s.outline);
     this.wireMeshes.forEach(m => m.visible = s.wireframe);
     this.ground.visible = s.ground; this.grid.visible = s.grid; this.indicator.visible = s.gizmo;
@@ -336,7 +414,7 @@ export class Studio {
     const background = new THREE.Color().setRGB(brightness, Math.min(1, brightness * (this.lightTheme ? 0.995 : 1.04)), Math.min(1, brightness * (this.lightTheme ? 0.98 : 1.07)), THREE.SRGBColorSpace);
     this.scene.background = background;
     this.scene.fog = new THREE.Fog(background, 12, 28);
-    const origin = direction.clone().multiplyScalar(2.7);
+    const origin = direction.clone().multiplyScalar(this.lightGizmoRadius).add(target);
     this.arrow.position.copy(origin); this.arrow.setDirection(direction.clone().negate()); this.arrow.setLength(0.78, 0.14, 0.08);
     this.invalidate();
   }
@@ -363,7 +441,7 @@ export class Studio {
       ? (this.camera.top - this.camera.bottom) / this.camera.zoom
       : distance * tangent * 2;
     this.controls.dispose();
-    this.camera = this.settings.ortho ? new THREE.OrthographicCamera(-3, 3, 3, -3, 0.1, 100) : new THREE.PerspectiveCamera(36, 1, 0.1, 100);
+    this.camera = this.settings.ortho ? new THREE.OrthographicCamera(-3, 3, 3, -3, 0.05, 500) : new THREE.PerspectiveCamera(36, 1, 0.05, 500);
     if (this.camera instanceof THREE.OrthographicCamera) this.camera.zoom = 5.2 / visibleHeight;
     else pos.sub(target).setLength(visibleHeight / (tangent * 2)).add(target);
     this.camera.position.copy(pos); this.controls = this.makeControls(); this.controls.target.copy(target); this.controls.update(); this.resize();
@@ -383,11 +461,11 @@ export class Studio {
   private fitDistance(aspect: number) {
     const size = new THREE.Box3().setFromObject(this.model).getSize(new THREE.Vector3());
     const tangent = Math.tan(THREE.MathUtils.degToRad(18));
-    const width = Math.max(4.2, Math.hypot(size.x, size.z) * 1.12);
-    return Math.max(9.6, width / (2 * tangent * Math.max(0.1, aspect)), size.y / (2 * tangent * 0.65));
+    const width = Math.max(.25, Math.hypot(size.x, size.z) * 1.15);
+    return Math.max(.8, width / (2 * tangent * Math.max(0.1, aspect)), size.y / (2 * tangent * (this.host.clientWidth<700?.5:.56)))+size.z*.25;
   }
   gizmoScreen() {
-    const p = this.key.position.clone().normalize().multiplyScalar(2.7).project(this.camera);
+    const p = this.key.position.clone().sub(this.key.target.position).normalize().multiplyScalar(this.lightGizmoRadius).add(this.key.target.position).project(this.camera);
     return { x: Math.max(40, Math.min(this.host.clientWidth - 40, (p.x * 0.5 + 0.5) * this.host.clientWidth)), y: Math.max(90, Math.min(this.host.clientHeight - 100, (-p.y * 0.5 + 0.5) * this.host.clientHeight)) };
   }
   async exportPNG() {
@@ -395,6 +473,7 @@ export class Studio {
     if (this.exporting) throw new Error('An export is already in progress.');
     const w = this.host.clientWidth, h = this.host.clientHeight;
     if (!w || !h) throw new Error('Open the viewport before exporting an image.');
+    this.finishModelDrag();this.endLightDrag();
     const scale = Math.min(3200 / Math.max(w, h), this.renderer.capabilities.maxTextureSize / Math.max(w, h));
     const clearColor = this.renderer.getClearColor(new THREE.Color()), clearAlpha = this.renderer.getClearAlpha();
     const controlsEnabled = this.controls.enabled;
@@ -436,8 +515,10 @@ export class Studio {
     return { geometries: this.renderer.info.memory.geometries, textures: this.renderer.info.memory.textures, triangles: this.renderer.info.render.triangles, modelGeometries: geometries.size, vertices, modelTriangles };
   }
   dispose() {
+    this.finishModelDrag();this.endLightDrag();
     this.disposed = true; cancelAnimationFrame(this.frame); this.observer.disconnect(); document.removeEventListener('visibilitychange', this.visibility); this.controls.dispose();
     this.renderer.domElement.removeEventListener('keydown', this.keyboard);
+    this.renderer.domElement.removeEventListener('pointerdown',this.modelPointerDown,true);this.renderer.domElement.removeEventListener('pointermove',this.modelPointerMove,true);this.renderer.domElement.removeEventListener('pointerup',this.modelPointerUp,true);this.renderer.domElement.removeEventListener('pointercancel',this.modelPointerUp,true);this.renderer.domElement.removeEventListener('lostpointercapture',this.modelPointerUp,true);
     this.renderer.domElement.removeEventListener('dblclick', this.focusPoint);
     this.renderer.domElement.removeEventListener('webglcontextlost', this.contextLoss);
     this.renderer.domElement.removeEventListener('webglcontextrestored', this.contextRestore);

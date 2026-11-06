@@ -18,6 +18,8 @@ test('malformed persisted controls cannot create invalid or unexpected settings'
 test('rotation is validated and a session-only import falls back to a usable reference',()=>{
   const result=validateStudy({...defaults,model:'imported',modelRotationX:181,modelRotationY:45,modelRotationZ:-180,silhouette:true,wireframe:true});
   assert.equal(result.model,defaults.model);assert.equal(result.modelRotationX,0);assert.equal(result.modelRotationY,45);assert.equal(result.modelRotationZ,-180);assert.equal(result.silhouette,true);
+  const transformed=validateStudy({...defaults,modelPositionX:-2,modelPositionY:1.25,modelPositionZ:3,modelScale:2.5});assert.equal(transformed.modelScale,2.5);assert.equal(transformed.modelPositionY,1.25);
+  const invalid=validateStudy({...defaults,modelPositionX:100,modelPositionY:NaN,modelPositionZ:'2',modelScale:0});assert.equal(invalid.modelPositionX,0);assert.equal(invalid.modelPositionY,0);assert.equal(invalid.modelPositionZ,0);assert.equal(invalid.modelScale,1);
 });
 test('local persistence recovers from missing/corrupted/blocked storage and keeps lighting library separate',()=>{
   const data=new Map<string,string>();

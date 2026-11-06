@@ -45,11 +45,11 @@ The complete static application is in `dist/`. Preview normally runs at **http:/
 
 The production build generates a versioned service worker that precaches the page, JavaScript, styles, manifest, and icons. Open the production app once online and wait for **App ready for offline use** in Help, then install it through the browser. No external fonts or CDN files are needed. Development mode intentionally does not register a worker.
 
-The hosted address is **[FoldLight](https://foldlight-studio-zzxc.zzxc-w.chatgpt.site)**. It is private to the owner's ChatGPT account; sign in with the same ChatGPT account on your iPad if prompted. The GitHub source repository remains private.
+Open **[FoldLight on GitHub Pages](https://zzxc-w.github.io/FoldLight/)**. The public [GitHub repository](https://github.com/zzxc-w/FoldLight) automatically tests, builds, and publishes updates pushed to `main` using `.github/workflows/static.yml`. In repository Settings → Pages, the source is **GitHub Actions**. The workflow uploads only the built `dist/` app. The older private ChatGPT Sites deployment is separate and does not receive these updates.
 
 On iPad Safari, open that address, then use **Share → Add to Home Screen** (enable **Open as Web App** if shown). Launch the new Home Screen icon while online, and open **Settings → Scene & performance → Install / offline help**. Wait for **App ready for offline use** before testing offline use. Actual iPad Safari/Pencil testing remains manual.
 
-A plain HTTP LAN address can be used to study the app during development, but does not provide the secure context needed for offline caching. For a LAN interaction preview, run `npm run dev -- --host 0.0.0.0` and open the PC's LAN address with port 5173. Hosting configuration is tracked in `.openai/hosting.json`; publishing uses the Sites source repository and a build-output archive. Changes pushed only to GitHub do not automatically deploy the hosted app.
+A plain HTTP LAN address can be used to study the app during development, but does not provide the secure context needed for offline caching. For a LAN interaction preview, run `npm run dev -- --host 0.0.0.0` and open the PC's LAN address with port 5173. The relative-path production build supports the `/FoldLight/` Pages path, including its scoped offline cache. `.openai/hosting.json` is retained for the older Sites deployment and is not used by GitHub Pages.
 
 Updates finish downloading in the background and take effect after all old app tabs/windows close and the app reopens. Each installation path has its own offline cache. Saved lighting presets and study preferences remain in this browser's localStorage. Browser storage clearing or eviction removes them and may remove the offline cache.
 
@@ -61,10 +61,12 @@ Updates finish downloading in the background and take effect after all old app t
 - Panning follows the screen plane, so moving up/down does not push the reference along the ground. Camera reset clears leftover motion. Switching projection preserves framing.
 - Use Front, Side, Back, or ¾ views; switch perspective/orthographic projection. Press **F** to reset the camera.
 - Double-click a surface to make that point the orbit center; **Fit** restores a useful view of the whole reference.
-- Drag the gold sun to change key-light azimuth/elevation. Its arrow points toward the reference. Arrow keys also move the focused sun.
+- Drag the gold sun to aim the light relative to your current camera view. The aim handle stays still while you drag, then returns to its actual projected position on release; the 3D arrow and shading update during the drag. Movement follows the screen from front and back views and stops at the camera hemisphere's rim. Change camera view or use azimuth/elevation sliders to aim across that rim. There is no initial grab jump, and dragging the light does not move the camera. Sliders and arrow keys on the focused sun provide precise adjustments.
 - Adjust intensity, color/temperature, ambient fill, optional secondary light, cast shadows, and shadow-map softness in Lighting.
 - Shape fabric with count, depth, spacing, tension, drape, sharpness, and real shell thickness. More controls are in the collapsible sections.
-- Model controls rotate the reference independently of the camera. Use X/Y/Z rotation to correct a model's up direction or create a new study angle, then reset its orientation with one button. Silhouette mode isolates the overall shape, and wireframe reveals surface tessellation.
+- Imported models show an **Edit model** strip in the viewport with **View / Move / Rotate / Scale**. Move drags the model in the current screen plane, Rotate turns the model under the same lights, and Scale enlarges it when dragging up/right (shrinks down/left). Select View, or the camera's Orbit/Move buttons, to return to camera gestures. A finger, Pencil, or primary mouse drag uses the selected tool; the mouse wheel still zooms.
+- **Transform** beside Import opens **Model transform** settings for every reference. Enter exact X/Y/Z position and rotation values, use the ±90° orientation shortcuts to fix a sideways import, and change uniform scale from **0.1× to 5×**. Reset orientation, reset all model transforms, and Place on ground are separate actions. Y position offsets height relative to the default grounded pose; Place on ground rests the model on the ground plane. Fit reframes the reference after large position/scale changes, and shadows follow the transformed reference.
+- Keyboard **G / R / S / V** selects model Move / Rotate / Scale / View when not editing an input. Models retain separate transforms while switching references within the current session. Built-in reference settings survive reload; session-only imports do not. Silhouette mode isolates the overall shape, and wireframe reveals surface tessellation.
 - Use **1 / 2 / 3 / 4** for Clay / Cel / Normals / Anime when not editing a control. Cel offers 2–5 diffuse value bands, threshold, and shadow hue. The threshold moves shading boundaries; shadow-map softness filters cast shadows independently.
 - **Anime** adds broad light/shadow shapes with adjustable sharp highlight and rim strength. It uses the current scene light and geometry, so changing light direction still changes the reference coherently. The optional values view removes hue for value studies.
 - Appearance includes contour outlines and a light-facing diagnostic. Gold faces toward the key light; blue faces away. This diagnostic deliberately ignores occlusion and overrides the selected shading mode. Normals encode view-space surface directions in RGB and are independent of lighting.
@@ -123,7 +125,7 @@ Browser tests use an installed Chrome by default; set `BROWSER_CHANNEL=msedge` t
 
 Verified on this workspace with **Chrome 157 on Windows** (earlier update checks also passed on Chrome 156):
 
-- The update passes **20 logic tests** (9 geometry, 4 persistence, and 7 import tests) and **29 production browser checks**, including local model formats, cancelled import races, offline importing, transparent image alpha, and WebGL context recovery.
+- **25 logic tests and 32 production browser checks passed.** These cover the full studio, model transforms with mouse/tablet touch, numeric values and orientation shortcuts, transform retention/reset, scale extremes, camera-relative light drags from both hemispheres, export/drag overlap, local imports, cancelled import races, offline importing, transparent PNG alpha, and WebGL recovery. Exact results from the latest completed browser run are in `test-results/browser-report.json`.
 - Automated geometry tests cover deterministic distinct surfaces, finite normals, joined fabric shells, applicable parameter changes, extreme settings, reduced detail, and continuous wrap seams.
 - Four persistence tests cover invalid stored settings, valid study round-trips, rotation/session-import fallback, and corrupt or unavailable browser storage.
 - Import tests cover supported formats and transform baking, local buffers, omitted textures, remote resource rejection, limits, invalid geometry, instance expansion, and temporary resource cleanup.
@@ -137,6 +139,7 @@ The browser suite uses Chromium touch emulation; it is **not actual iPad Safari 
 ```text
 src/geometry.ts   Deterministic fabric surfaces, closed shells, supplementary models
 src/import-model.ts Local geometry loaders, validation, transform baking, and normalization
+src/interaction.ts Camera-relative light/model drag math and uniform scaling
 src/studio.ts     WebGL scene, camera, lighting, shared shaders, disposal, PNG export
 src/state.ts      Typed defaults, lighting preset validation and local persistence
 src/main.ts       Accessible controls, pointer gizmo, responsive panels, PWA registration

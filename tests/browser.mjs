@@ -125,6 +125,15 @@ try{
     await page.mouse.move(g.x+g.width/2,g.y+g.height/2);await page.mouse.down();await page.mouse.move(g.x+g.width/2+60,g.y+g.height/2-30,{steps:10});await page.mouse.up();
     const after=(await state()).settings;assert.notEqual(after.azimuth,before.azimuth);assert.notEqual(after.elevation,before.elevation);
   });
+  await check('light dragging is camera-relative without a grab jump or camera movement',async()=>{
+    for(const view of ['front','back','side']){
+      await page.locator(`[data-view="${view}"]`).click();await page.waitForTimeout(100);
+      const before=await state(),g=await page.locator('#light-gizmo').boundingBox(),x=g.x+g.width/2,y=g.y+g.height/2;
+      await page.mouse.move(x,y);await page.mouse.down();assert.match(await page.locator('#light-gizmo').getAttribute('class'),/dragging/);const grab=await state();assert.equal(grab.settings.azimuth,before.settings.azimuth);assert.equal(grab.settings.elevation,before.settings.elevation);
+      await page.mouse.move(x+25,y-15,{steps:8});await page.mouse.up();const after=await state();assert.ok(near(after.camera,before.camera));assert.ok(near(after.target,before.target));assert.ok(after.settings.elevation>=5&&after.settings.elevation<=85);assert.ok(after.settings.azimuth>=-180&&after.settings.azimuth<180);assert.notDeepEqual([after.settings.azimuth,after.settings.elevation],[before.settings.azimuth,before.settings.elevation]);
+    }
+    await page.locator('#camera-reset').click();
+  });
   await check('preset save, reload, load, and delete persist',async()=>{
     const saved=(await state()).settings;await page.locator('#presets-open').click();await page.locator('#preset-name').fill('Browser QA light');await page.locator('#save-form button').click();await page.locator('[data-close="preset-dialog"]').click();
     await page.reload();await page.waitForFunction(()=>window.foldlightDiagnostics);await page.locator('#presets-open').click();await page.getByRole('button',{name:'Load',exact:true}).click();
@@ -163,6 +172,24 @@ try{
     await revealControl(page,'[data-key="silhouette"]');await page.locator('[data-key="silhouette"]').check();const silhouette=hash(await shot());assert.notEqual(silhouette,original);await page.locator('[data-key="silhouette"]').uncheck();
     await revealControl(page,'[data-key="wireframe"]');await page.locator('[data-key="wireframe"]').check();assert.notEqual(hash(await shot()),original);await page.locator('[data-key="wireframe"]').uncheck();
   });
+  await check('visible model tools move, rotate and scale geometry without moving the camera',async()=>{
+    await uploadModel(page,objFixture());assert.ok(await page.locator('.model-transform-tools').isVisible());
+    const box=await page.locator('#viewport').boundingBox(),x=box.x+box.width*.56,y=box.y+box.height*.48;
+    const drag=async(dx,dy)=>{await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+dx,y+dy,{steps:10});await page.mouse.up();};
+    await page.locator('[data-tool="translate"]').click();const before=await state();await drag(65,-35);const moved=await state();assert.ok(!near(moved.modelTransform.position,before.modelTransform.position));assert.ok(near(moved.camera,before.camera));assert.ok(near(moved.target,before.target));
+    await page.locator('[data-tool="rotate"]').click();const rotation=(await state()).modelTransform.quaternion;await drag(75,40);assert.ok(!near((await state()).modelTransform.quaternion,rotation));assert.ok(near((await state()).camera,before.camera));
+    await page.locator('[data-tool="scale"]').click();await drag(35,-35);const scaled=await state();assert.ok(scaled.settings.modelScale>1);assert.ok(scaled.modelTransform.scale.every(v=>Math.abs(v-scaled.settings.modelScale)<1e-7));assert.equal(scaled.memory.modelGeometries,before.memory.modelGeometries);
+    await page.locator('#transform-numbers').click();await page.locator('input[type=number][data-key="modelScale"]').fill('1.25');assert.equal((await state()).settings.modelScale,1.25);
+    await page.locator('input[type=number][data-key="modelPositionX"]').fill('1.5');assert.equal((await state()).settings.modelPositionX,1.5);
+    await page.locator('[data-turn="X:-90"]').click();await page.locator('#ground-model').click();assert.ok(Math.abs((await state()).modelBounds.min[1]+1.78)<1e-4);
+    const saved=(await state()).settings;await page.locator('#model-select').selectOption('sphere');assert.equal((await state()).settings.modelScale,1);assert.equal((await state()).settings.modelPositionX,0);
+    await page.locator('#model-select').selectOption('imported');assert.equal((await state()).settings.modelScale,saved.modelScale);assert.equal((await state()).settings.modelPositionX,saved.modelPositionX);assert.equal((await state()).settings.modelRotationX,saved.modelRotationX);
+    await page.locator('#transform-open').click();await page.screenshot({path:new URL('model-transform-tools.png',out).pathname.replace(/^\/([A-Z]:)/,'$1')});
+    await page.locator('#reset-model-transform').click();const reset=await state();assert.equal(reset.settings.modelScale,1);assert.equal(reset.settings.modelPositionX,0);assert.equal(reset.settings.modelRotationX,0);assert.ok(Math.abs(reset.modelBounds.min[1]+1.6)<1e-4);
+    for(const scale of ['0.1','5']){await page.locator('input[type=number][data-key="modelScale"]').fill(scale);await page.locator('#frame-view').click();await page.locator('#projection').click();const a=await state();await page.locator('#projection').click();const b=await state();assert.ok(near(a.target,b.target));assert.equal(b.settings.modelScale,Number(scale));assert.ok((await shot()).length>5000);}
+    await page.locator('#reset-model-transform').click();await page.locator('#frame-view').click();
+    await page.locator('[data-tool="view"]').click();const original=(await state()).camera;await drag(60,20);assert.ok(!near((await state()).camera,original),'View restores orbit');await page.locator('#camera-reset').click();
+  });
   await check('failed and remote imports keep the previous model and perform no external fetch',async()=>{
     const before=(await state()).imported,requests=[];const record=request=>{if(request.url().includes('foldlight-test.invalid'))requests.push(request.url());};page.on('request',record);
     for(const fixture of [invalidFixture(),remoteGltfFixture()]){
@@ -198,6 +225,26 @@ try{
     const downloadPromise=page.waitForEvent('download');await page.locator('#export').click();const download=await downloadPromise;
     const destination=new URL('export.png',out).pathname.replace(/^\/([A-Z]:)/,'$1');await download.saveAs(destination);const png=await readFile(destination);
     assert.equal(png.toString('hex',0,8),'89504e470d0a1a0a');assert.equal(Math.max(png.readUInt32BE(16),png.readUInt32BE(20)),3200);assert.ok(png.length>15000);
+  });
+  await check('export ends active model drags and rejects light drags without disabling the camera',async()=>{
+    await page.locator('#transform-open').click();await page.locator('[data-tool="translate"]').click();
+    const r=await page.locator('#viewport').boundingBox(),x=r.x+r.width*.55,y=r.y+r.height*.5;
+    await page.evaluate(()=>{
+      const original=HTMLCanvasElement.prototype.toBlob;
+      window.releaseExport=null;
+      HTMLCanvasElement.prototype.toBlob=function(callback,...args){original.call(this,blob=>{window.releaseExport=()=>callback(blob);},...args);};
+      window.restoreExport=()=>{HTMLCanvasElement.prototype.toBlob=original;};
+    });
+    try{
+      await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+15,y+10);
+      const downloadPromise=page.waitForEvent('download');await page.locator('#export').evaluate(button=>button.click());await page.mouse.up();
+      await page.waitForFunction(()=>typeof window.releaseExport==='function');const settings=(await state()).settings,g=await page.locator('#light-gizmo').boundingBox();
+      await page.mouse.move(g.x+g.width/2,g.y+g.height/2);await page.mouse.down();await page.mouse.move(g.x+g.width/2+30,g.y+g.height/2-20);await page.mouse.up();
+      assert.equal((await state()).settings.azimuth,settings.azimuth);assert.equal((await state()).settings.elevation,settings.elevation);
+      await page.evaluate(()=>window.releaseExport());await downloadPromise;await page.waitForFunction(()=>!document.querySelector('#export').disabled);
+    }finally{await page.evaluate(()=>window.restoreExport());}
+    const idle=await state();await page.mouse.move(x,y);await page.mouse.wheel(0,-120);await page.waitForTimeout(100);assert.ok(!near((await state()).camera,idle.camera),'Idle wheel zoom remains enabled before changing tools');
+    await page.locator('[data-tool="view"]').click();const before=await state();await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+50,y+20,{steps:6});await page.mouse.up();assert.ok(!near((await state()).camera,before.camera));await page.locator('#reset-all').click();
   });
   await check('outlines, grid, ground, and reduced quality work',async()=>{
     await openPanel(page,'#appearance-panel');await page.locator('[data-key="outline"]').check();
@@ -248,7 +295,13 @@ try{
     await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:550,y:500}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:650,y:550}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await tablet.waitForTimeout(300);assert.notDeepEqual(await tablet.evaluate(()=>window.foldlightDiagnostics().camera),initial);
     const before=await tablet.evaluate(()=>window.foldlightDiagnostics().camera);await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:420,y:600},{x:620,y:600}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:350,y:600},{x:690,y:600}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await tablet.waitForTimeout(300);assert.notDeepEqual(await tablet.evaluate(()=>window.foldlightDiagnostics().camera),before);
     await tablet.locator('#camera-reset').tap();await tablet.waitForTimeout(100);await tablet.screenshot({path:new URL('tablet.png',out).pathname.replace(/^\/([A-Z]:)/,'$1')});await tablet.locator('#inspector-toggle').tap();assert.ok(await tablet.locator('.inspector').isVisible());
-    await tablet.locator('#settings-close').tap();await tablet.setViewportSize({width:390,height:844});await tablet.screenshot({path:new URL('mobile.png',out).pathname.replace(/^\/([A-Z]:)/,'$1')});
+    await tablet.locator('#settings-close').tap();
+    await uploadModel(tablet,objFixture('touch.obj'));await tablet.locator('[data-tool="translate"]').tap();const touchBefore=await tablet.evaluate(()=>window.foldlightDiagnostics());
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:480,y:550}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:530,y:510}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+    const touchMoved=await tablet.evaluate(()=>window.foldlightDiagnostics());assert.ok(!near(touchMoved.modelTransform.position,touchBefore.modelTransform.position));assert.ok(near(touchMoved.camera,touchBefore.camera));
+    await tablet.locator('[data-tool="rotate"]').tap();await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:480,y:550}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:530,y:580}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});assert.ok(!near((await tablet.evaluate(()=>window.foldlightDiagnostics())).modelTransform.quaternion,touchMoved.modelTransform.quaternion));
+    await tablet.locator('[data-tool="scale"]').tap();await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:480,y:550}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:510,y:520}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});assert.ok((await tablet.evaluate(()=>window.foldlightDiagnostics())).settings.modelScale>1);
+    await tablet.locator('[data-tool="view"]').tap();await tablet.setViewportSize({width:390,height:844});await tablet.screenshot({path:new URL('mobile.png',out).pathname.replace(/^\/([A-Z]:)/,'$1')});
     assert.ok(await tablet.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await tablet.locator('#inspector-toggle').tap();await tablet.screenshot({path:new URL('mobile-controls.png',out).pathname.replace(/^\/([A-Z]:)/,'$1')});await touch.close();
   });
   assert.deepEqual(errors,[],`Browser errors: ${errors.join('\n')}`);
