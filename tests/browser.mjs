@@ -9,6 +9,7 @@ const url=process.env.TEST_URL||'http://127.0.0.1:5173/';
 const out=new URL('../test-results/',import.meta.url);await mkdir(out,{recursive:true});
 const browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||'chrome',headless:true});
 const errors=[],checks=[];
+const recordConsole=message=>{const text=message.text();if(message.type()==='error'||/INVALID_OPERATION|vertex buffer.*(?:too small|not big enough)/i.test(text))errors.push(text);};
 const check=(name,fn)=>fn().then(()=>{checks.push(name);console.log(`PASS ${name}`);});
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const direction=s=>s.camera.map((v,i)=>v-s.target[i]);
@@ -34,7 +35,7 @@ try{
   const context=await browser.newContext({viewport:{width:1440,height:1000},deviceScaleFactor:1,acceptDownloads:true,reducedMotion:'reduce'});
   const page=await context.newPage();
   page.on('pageerror',e=>errors.push(e.message));
-  page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
+  page.on('console',recordConsole);
   await page.goto(url);await page.waitForFunction(()=>window.foldlightDiagnostics);await page.waitForTimeout(600);
   const state=()=>page.evaluate(()=>window.foldlightDiagnostics());
   const shot=()=>page.locator('#viewport>canvas').screenshot();
@@ -290,7 +291,7 @@ try{
   });
   await check('tablet touch orbit and pinch zoom work in Chromium emulation',async()=>{
     const touch=await browser.newContext({viewport:{width:820,height:1180},isMobile:true,hasTouch:true,deviceScaleFactor:1,reducedMotion:'reduce'});const tablet=await touch.newPage();
-    tablet.on('pageerror',e=>errors.push(e.message));await tablet.goto(url);await tablet.waitForFunction(()=>window.foldlightDiagnostics);
+    tablet.on('pageerror',e=>errors.push(e.message));tablet.on('console',recordConsole);await tablet.goto(url);await tablet.waitForFunction(()=>window.foldlightDiagnostics);
     const cdp=await touch.newCDPSession(tablet),initial=await tablet.evaluate(()=>window.foldlightDiagnostics().camera);
     await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:550,y:500}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:650,y:550}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await tablet.waitForTimeout(300);assert.notDeepEqual(await tablet.evaluate(()=>window.foldlightDiagnostics().camera),initial);
     const before=await tablet.evaluate(()=>window.foldlightDiagnostics().camera);await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:420,y:600},{x:620,y:600}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:350,y:600},{x:690,y:600}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await tablet.waitForTimeout(300);assert.notDeepEqual(await tablet.evaluate(()=>window.foldlightDiagnostics().camera),before);

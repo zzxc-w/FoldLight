@@ -110,6 +110,10 @@ export function createFabric(type: ModelType, settings: FoldSettings, reduced = 
   for (let i = 0; i < nu; i++) { const next = (i + 1) % stride; edge(next, i); edge(nv * stride + i, nv * stride + next); }
   if (!periodic) for (let j = 0; j < nv; j++) { edge(j * stride, (j + 1) * stride); edge((j + 1) * stride + nu, j * stride + nu); }
   front.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  // The shell doubles the vertex count. Three.js reuses an existing normal
+  // buffer, so discard the front-only normals before computing the full shell.
+  // Otherwise strict WebGL drivers reject the surface draw but still cast shadows.
+  front.deleteAttribute('normal');
   front.setIndex(indices); front.computeVertexNormals(); front.computeBoundingBox();
   front.translate(0, -1.6 - front.boundingBox!.min.y, 0);
   front.computeBoundingSphere();

@@ -63,6 +63,33 @@ test('extreme allowed controls and supplementary models remain valid',()=>{
   }
 });
 
+test('every model draw has complete vertex attributes and in-bounds indices at both quality levels',()=>{
+  const extreme:FoldSettings={count:14,depth:.65,spacing:.65,tension:0,gravity:1,sharpness:1,thickness:.15};
+  for(const reduced of [false,true])for(const settings of [defaultFold,extreme])for(const type of modelTypes){
+    const geometries=createModel(type,settings,reduced);
+    try{
+      for(const [part,geometry] of geometries.entries()){
+        const label=`${type} part ${part}, ${reduced?'reduced':'full'} quality, ${settings===defaultFold?'default':'extreme'} settings`;
+        const position=geometry.getAttribute('position'),normal=geometry.getAttribute('normal');
+        assert.ok(position&&normal,`${label}: lit rendering needs positions and normals`);
+        assert.equal(position.itemSize,3,`${label}: position size`);
+        assert.equal(normal.itemSize,3,`${label}: normal size`);
+        const attributes=Object.entries(geometry.attributes);
+        for(const [name,attribute] of attributes){
+          assert.equal(attribute.count,position.count,`${label}: ${name} must cover every vertex`);
+        }
+        assert.ok(geometry.index,`${label}: triangle indices exist`);
+        let maximumIndex=-1;
+        assert.ok(geometry.index.array.every(index=>Number.isInteger(index)&&index>=0),`${label}: indices are nonnegative integers`);
+        for(const index of geometry.index.array)maximumIndex=Math.max(maximumIndex,index);
+        for(const [name,attribute] of attributes){
+          assert.ok(maximumIndex<attribute.count,`${label}: highest index ${maximumIndex} is inside ${name}`);
+        }
+      }
+    }finally{geometries.forEach(geometry=>geometry.dispose());}
+  }
+});
+
 test('all reference models fit above the ground and have useful three-dimensional volume',()=>{
   for(const type of modelTypes){
     const geometries=createModel(type,defaultFold,true),box=new THREE.Box3();

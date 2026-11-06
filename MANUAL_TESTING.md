@@ -4,7 +4,7 @@ Automated verification was performed in desktop Chrome on Windows with Chromium 
 
 Use the production `dist/` build over HTTPS on the iPad (localhost is only local to the device on which the server runs).
 
-1. In Safari, open each fold and each supplementary model. Orbit from front to back; confirm that the fabric has volume and spiral/sleeve/skirt have no open wrap seam. Check extreme fold controls.
+1. In Safari, open each fold and each supplementary model. Confirm that every fabric surface is visible, including Pipe, Zigzag, Spiral, Diaper, Tension, Sleeve, Skirt, and Shoulder scarf; a shadow without its surface is a failure. Check Clay, Cel, Anime, and Normals in full and reduced quality. Orbit from front to back; confirm that the fabric has volume and spiral/sleeve/skirt have no open wrap seam. Check extreme fold controls.
 2. In Orbit mode, use one finger and Apple Pencil to rotate. Switch to Move and drag normally to pan the reference in the screen plane. Test the directional pan buttons, zoom buttons, two-finger gestures, and right-drag with a mouse. Confirm that no page scrolling occurs in the viewport. Drag each slider and scroll the inspector independently.
 3. Drag the gold light with touch and Pencil, then adjust azimuth/elevation numerically via the sliders. Confirm that shadows follow the light. Compare Studio, Dramatic, and Rim.
 4. Switch Clay, Cel (2 through 5 bands), Anime, and Normals. Adjust Anime highlight/rim strength while moving the light, and inspect the head, hand, hair, and cloth. Compare threshold adjustment against shadow softness. Turn values view, outline, and light-facing visualization on/off.
