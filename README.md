@@ -45,7 +45,11 @@ The complete static application is in `dist/`. Preview normally runs at **http:/
 
 The production build generates a versioned service worker that precaches the page, JavaScript, styles, manifest, and icons. Open the production app once online and wait for **App ready for offline use** in Help, then install it through the browser. No external fonts or CDN files are needed. Development mode intentionally does not register a worker.
 
-On iPad Safari, use **Share → Add to Home Screen** from an HTTPS address and open it once online. A plain HTTP LAN address can be used to study the app during development, but does not provide the secure context needed for offline caching. For a LAN interaction preview, run `npm run dev -- --host 0.0.0.0` and open the PC's LAN address with port 5173. This project has not been published to a hosting service.
+The hosted address is **[FoldLight](https://foldlight-studio-zzxc.zzxc-w.chatgpt.site)**. It is private to the owner's ChatGPT account; sign in with the same ChatGPT account on your iPad if prompted. The GitHub source repository remains private.
+
+On iPad Safari, open that address, then use **Share → Add to Home Screen** (enable **Open as Web App** if shown). Launch the new Home Screen icon while online, and open **Settings → Scene & performance → Install / offline help**. Wait for **App ready for offline use** before testing offline use. Actual iPad Safari/Pencil testing remains manual.
+
+A plain HTTP LAN address can be used to study the app during development, but does not provide the secure context needed for offline caching. For a LAN interaction preview, run `npm run dev -- --host 0.0.0.0` and open the PC's LAN address with port 5173. Hosting configuration is tracked in `.openai/hosting.json`; publishing uses the Sites source repository and a build-output archive. Changes pushed only to GitHub do not automatically deploy the hosted app.
 
 Updates finish downloading in the background and take effect after all old app tabs/windows close and the app reopens. Each installation path has its own offline cache. Saved lighting presets and study preferences remain in this browser's localStorage. Browser storage clearing or eviction removes them and may remove the offline cache.
 
